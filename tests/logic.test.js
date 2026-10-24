@@ -7,6 +7,19 @@ test("parseCSV parses offer rows", () => { const rows = L.parseCSV("pack_id,cred
 test("parseSchedule splits semicolon amounts", () => { assert.deepEqual(L.parseSchedule("250;250;500"), [250,250,500]); });
 test("complete pack passes", () => { const r = L.checkPack(good, cfg); assert.equal(r.status,"PASS"); assert.equal(r.scheduleSum,4000); });
 test("missing creditor and approval fail with exact checks", () => { const r = L.checkPack({...good, creditor:"", client_approval:"no"}, cfg); assert.equal(r.status,"FAIL"); assert.ok(r.failedChecks.includes("Missing creditor")); assert.ok(r.failedChecks.includes("Missing client approval")); });
+test("parseSchedule accepts amount@date instalments and keeps plain amounts working", () => {
+  assert.deepEqual(L.parseSchedule("1000@2026-02-01;1000;2000@2026-04-01"), [1000, 1000, 2000]);
+  assert.deepEqual(L.parseScheduleEntries("1000@2026-02-01;1000"), [{ amount: 1000, date: "2026-02-01" }, { amount: 1000, date: "" }]);
+});
+test("final payment after offer expiry fails", () => {
+  const r = L.checkPack({ ...good, payment_schedule: "1000@2026-06-01;1000;2000@2027-07-01" }, cfg);
+  assert.equal(r.status, "FAIL");
+  assert.ok(r.failedChecks.some(x => x.includes("after offer expiry")));
+});
+test("final payment before offer expiry still passes", () => {
+  const r = L.checkPack({ ...good, payment_schedule: "1000@2026-02-01;1000;2000@2026-03-01" }, cfg);
+  assert.equal(r.status, "PASS");
+});
 test("schedule that does not sum to offer fails", () => { const r = L.checkPack({...good, payment_schedule:"1000;1000"}, cfg); assert.ok(r.failedChecks.some(x=>x.includes("Payment schedule sums"))); });
 test("fee amount mismatch on enrolled balance basis fails", () => { const r = L.checkPack({...good, fee_amount:"1000"}, cfg); assert.ok(r.failedChecks.some(x=>x.includes("does not match"))); assert.equal(r.expectedFeeAmount,2500); });
 test("expected fee percent mismatch fails", () => { const r = L.checkPack({...good, fee_percent:"20", fee_amount:"2000"}, cfg); assert.ok(r.failedChecks.some(x=>x.includes("expected fee percent"))); });

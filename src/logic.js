@@ -25,7 +25,17 @@ function parseDate(v) { if (!v) return null; const d = new Date(String(v).trim()
 function fmtDate(d) { return d ? d.toISOString().slice(0, 10) : ""; }
 function daysBetween(a, b) { const da = parseDate(a), db = parseDate(b); if (!da || !db) return null; return Math.round((db.getTime() - da.getTime()) / 86400000); }
 
-function parseSchedule(v) { if (!v) return []; return String(v).split(";").map(x => num(x.trim())).filter(x => x !== null); }
+function parseScheduleEntries(v) {
+  // each instalment is "amount" or "amount@YYYY-MM-DD"; the date is optional
+  if (!v) return [];
+  return String(v).split(";").map(x => x.trim()).filter(Boolean).map(x => {
+    const at = x.indexOf("@");
+    const amount = num(at >= 0 ? x.slice(0, at).trim() : x);
+    const date = at >= 0 ? parseDate(x.slice(at + 1).trim()) : null;
+    return amount === null ? null : { amount, date: date ? fmtDate(date) : "" };
+  }).filter(x => x !== null);
+}
+function parseSchedule(v) { return parseScheduleEntries(v).map(e => e.amount); }
 function fundingProjection(balance, monthlyDraft, offerAmount, referenceDate) {
   const bal = Number(balance) || 0, monthly = Number(monthlyDraft) || 0, offer = Number(offerAmount) || 0;
   const ref = parseDate(referenceDate) || new Date("2026-01-01T00:00:00Z");
@@ -45,7 +55,8 @@ function checkPack(row, config) {
   const creditor = row.creditor || "";
   const enrolled = num(row.enrolled_balance), offer = num(row.offer_amount);
   const feeAmount = num(row.fee_amount), feePercent = num(row.fee_percent);
-  const schedule = parseSchedule(row.payment_schedule);
+  const entries = parseScheduleEntries(row.payment_schedule);
+  const schedule = entries.map(e => e.amount);
   const scheduleSum = round2(schedule.reduce((a, b) => a + b, 0));
   if (!creditor) failed.push("Missing creditor");
   if (enrolled === null || enrolled <= 0) failed.push("Missing or invalid enrolled_balance");
@@ -54,6 +65,12 @@ function checkPack(row, config) {
   if (!schedule.length) failed.push("Missing payment_schedule");
   if (String(row.client_approval || "").toLowerCase() !== "yes") failed.push("Missing client approval");
   if (schedule.length && offer !== null && Math.abs(scheduleSum - offer) > scheduleTolerance) failed.push("Payment schedule sums to " + scheduleSum + ", not offer amount " + offer);
+  const expiry = parseDate(row.offer_expiry);
+  const dated = entries.filter(e => e.date);
+  if (dated.length && expiry) {
+    const latest = dated.reduce((a, b) => a.date > b.date ? a : b);
+    if (parseDate(latest.date) > expiry) failed.push("Final payment " + latest.date + " lands after offer expiry " + row.offer_expiry);
+  }
   let expectedFeeAmount = null;
   if (enrolled !== null && feePercent !== null) {
     expectedFeeAmount = round2(enrolled * feePercent / 100);
@@ -86,6 +103,6 @@ function buildClientSummary(row, result) {
   return lines.join("\n");
 }
 function toAuditCSV(results) { return toCSV(["pack_id","client_ref","creditor","offer_amount","schedule_sum","funding_date","status","failed_checks"], (results||[]).map(r => ({ pack_id: r.packId, client_ref: r.clientRef, creditor: r.creditor, offer_amount: r.offerAmount, schedule_sum: r.scheduleSum, funding_date: r.fundingDate, status: r.status, failed_checks: r.failedChecks.join("; ") }))); }
-const api = { parseCSV, parseSchedule, fundingProjection, checkPack, auditPacks, buildClientSummary, toAuditCSV };
+const api = { parseCSV, parseSchedule, parseScheduleEntries, fundingProjection, checkPack, auditPacks, buildClientSummary, toAuditCSV };
 if (typeof module !== "undefined" && module.exports) { module.exports = api; }
 if (typeof window !== "undefined") { window.SettlementOfferPackChecker = api; }
