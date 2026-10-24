@@ -14,3 +14,20 @@ test("expiry risk when funding date is after expiry", () => { const r = L.checkP
 test("funding projection when balance already covers offer", () => { const f = L.fundingProjection(5000,300,4000,"2026-01-01"); assert.equal(f.monthsNeeded,0); assert.equal(f.fundingDate,"2026-01-01"); });
 test("client summary states payee, expiry, fee and total cost", () => { const s = L.buildClientSummary(good, L.checkPack(good,cfg)); assert.ok(s.includes("Creditor A")); assert.ok(s.includes("2027-06-01")); assert.ok(s.includes("Total cost: 6500.00")); });
 test("audit summary and CSV export", () => { const a = L.auditPacks([good, {...good, pack_id:"P2", creditor:""}], cfg); assert.equal(a.summary.pass,1); assert.equal(a.summary.fail,1); assert.ok(L.toAuditCSV(a.results).includes("failed_checks")); });
+
+test("fee basis is normalized and shown in the audit export", () => {
+  assert.equal(L.normalizeFeeBasis("Enrolled Balance"), "enrolled_balance");
+  assert.equal(L.normalizeFeeBasis("savings"), "savings");
+  assert.equal(L.normalizeFeeBasis(""), "");
+  const row = {
+    pack_id: "p1", client_ref: "c1", creditor: "Bank",
+    enrolled_balance: "10000", offer_amount: "5000", offer_expiry: "2026-06-01",
+    payment_schedule: "1000;1000;1000;1000;1000", client_approval: "yes",
+    fee_amount: "150", fee_percent: "1.5", fee_basis: "savings",
+  };
+  const result = L.checkPack(row, {});
+  assert.equal(result.feeBasis, "savings");
+  const csv = L.toAuditCSV([result]);
+  assert.ok(csv.indexOf("fee_basis") !== -1);
+  assert.ok(csv.indexOf("savings") !== -1);
+});
