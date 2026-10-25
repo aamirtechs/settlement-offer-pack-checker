@@ -67,8 +67,16 @@ function checkPack(row, config) {
     if (!funding.funded) failed.push("Dedicated account cannot fund this offer on current drafts");
     else if (row.offer_expiry && parseDate(row.offer_expiry) && funding.fundingDate > row.offer_expiry) failed.push("Expiry risk: account can fund on " + funding.fundingDate + ", after offer expiry " + row.offer_expiry);
   }
-  return { packId: row.pack_id || "", clientRef: row.client_ref || "", creditor, enrolledBalance: enrolled, offerAmount: offer, offerExpiry: row.offer_expiry || "", scheduleSum, expectedFeeAmount, feeAmount, feePercent, fundingDate: funding.fundingDate, status: failed.length ? "FAIL" : "PASS", failedChecks: failed };
+  return { packId: row.pack_id || "", clientRef: row.client_ref || "", creditor, enrolledBalance: enrolled, offerAmount: offer, offerExpiry: row.offer_expiry || "", scheduleSum, expectedFeeAmount, feeAmount, feePercent, feeBasis: normalizeFeeBasis(row.fee_basis), fundingDate: funding.fundingDate, status: failed.length ? "FAIL" : "PASS", failedChecks: failed };
 }
+
+function normalizeFeeBasis(v) {
+  const s = String(v || "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (s === "enrolled_balance" || s === "enrolled" || s === "balance") return "enrolled_balance";
+  if (s === "savings" || s === "expected_savings") return "savings";
+  return "";
+}
+
 function auditPacks(rows, config) { const results = (rows || []).map(r => checkPack(r, config)); return { results, summary: { total: results.length, pass: results.filter(r => r.status === "PASS").length, fail: results.filter(r => r.status === "FAIL").length } }; }
 function buildClientSummary(row, result) {
   const offer = num(row.offer_amount) || 0, fee = num(row.fee_amount) || 0;
@@ -78,14 +86,14 @@ function buildClientSummary(row, result) {
     "What you will pay: " + offer.toFixed(2),
     "To whom: " + (row.creditor || "the creditor listed in your offer pack"),
     "By when: the offer expires on " + (row.offer_expiry || "the date in your offer pack") + ". Payments follow this schedule: " + (row.payment_schedule || "") + ".",
-    "What the fee is: " + fee.toFixed(2) + (row.fee_percent ? " (" + row.fee_percent + "% of your enrolled balance)" : ""),
+    "What the fee is: " + fee.toFixed(2) + (row.fee_percent ? " (" + row.fee_percent + "% of your " + (normalizeFeeBasis(row.fee_basis) === "savings" ? "expected savings" : "enrolled balance") + ")" : ""),
     "Total cost: " + (offer + fee).toFixed(2) + " (offer amount plus fee)",
     "",
     "Please review this summary with your program team before you approve. This is an operations checklist summary, not legal or financial advice."
   ];
   return lines.join("\n");
 }
-function toAuditCSV(results) { return toCSV(["pack_id","client_ref","creditor","offer_amount","schedule_sum","funding_date","status","failed_checks"], (results||[]).map(r => ({ pack_id: r.packId, client_ref: r.clientRef, creditor: r.creditor, offer_amount: r.offerAmount, schedule_sum: r.scheduleSum, funding_date: r.fundingDate, status: r.status, failed_checks: r.failedChecks.join("; ") }))); }
-const api = { parseCSV, parseSchedule, fundingProjection, checkPack, auditPacks, buildClientSummary, toAuditCSV };
+function toAuditCSV(results) { return toCSV(["pack_id","client_ref","creditor","offer_amount","schedule_sum","fee_basis","funding_date","status","failed_checks"], (results||[]).map(r => ({ pack_id: r.packId, client_ref: r.clientRef, creditor: r.creditor, offer_amount: r.offerAmount, schedule_sum: r.scheduleSum, fee_basis: r.feeBasis || "", funding_date: r.fundingDate, status: r.status, failed_checks: r.failedChecks.join("; ") }))); }
+const api = { parseCSV, parseSchedule, fundingProjection, checkPack, auditPacks, buildClientSummary, toAuditCSV, normalizeFeeBasis };
 if (typeof module !== "undefined" && module.exports) { module.exports = api; }
 if (typeof window !== "undefined") { window.SettlementOfferPackChecker = api; }
